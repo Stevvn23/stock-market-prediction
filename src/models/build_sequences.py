@@ -14,6 +14,8 @@ Each npz file contains, for split in {train, val, test}:
     close_<split>        close on that last day (used to turn a predicted return into a price)
     target_close_<split> actual close of the next trading day
     target_dates_<split> the next trading day's date
+    yv_<split>           float32, log realized volatility over the next 5 trading days (NaN if not yet known)
+    volok_<split>        bool, True for samples that may be used by the volatility models
 and for the single most recent day:
     X_infer, dates_infer, close_infer      (no target yet; used to forecast tomorrow)
 
@@ -23,6 +25,10 @@ Rules enforced here (see project brief, section 8):
   * A window ending on day t contains days t-WINDOW+1 ... t only. It never looks forward.
   * A sample belongs to the split of its LAST day. Early val/test windows reach back into
     earlier periods for their inputs, which is legitimate because those days are in the past.
+  * Any column starting with "target_" is a label, never a feature.
+  * The 5-day volatility target reaches up to 5 days into the future. The last VOL_HORIZON samples
+    of train and of val would have targets that overlap the next split, so they are purged
+    (volok = False). Samples whose volatility target is not known yet (NaN) are excluded as well.
 """
 
 from pathlib import Path
@@ -44,11 +50,17 @@ OUT_DIR = PROJECT_ROOT / "data" / "processed"
 SCALER_FILE = PROJECT_ROOT / "models" / "scalers.json"
 
 WINDOW = 60
-NON_FEATURE_COLUMNS = {"Date", "Ticker", "Close", "target_date", "target_close", "target_ret", "split"}
+VOL_HORIZON = 5
+NON_FEATURE_COLUMNS = {"Date", "Ticker", "Close", "split"}
 SPLIT_KEYS = [("train", "train"), ("val", "val"), ("test", "test"), ("inference", "infer")]
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
+
+
+def select_feature_columns(columns) -> list:
+    """Everything that is not an identifier, the split label, or a target_ column."""
+    return [c for c in columns if c not in NON_FEATURE_COLUMNS and not c.startswith("target_")]
 
 
 # --------------------------------------------------
@@ -78,6 +90,7 @@ def build_ticker_sequences(ticker: str, g: pd.DataFrame, feature_cols: list):
     close = g["Close"].to_numpy(dtype=np.float64)[end]
     target_close = g["target_close"].to_numpy(dtype=np.float64)[end]
     target_ret = g["target_ret"].to_numpy(dtype=np.float64)[end]
+    target_vol = g["target_logvol5"].to_numpy(dtype=np.float64)[end]
     target_dates = g["target_date"].dt.strftime("%Y-%m-%d").fillna("").to_numpy(dtype=str)[end]
 
     arrays = {}
@@ -90,6 +103,13 @@ def build_ticker_sequences(ticker: str, g: pd.DataFrame, feature_cols: list):
             arrays[f"y_{key}"] = target_ret[m].astype(np.float32)
             arrays[f"target_close_{key}"] = target_close[m]
             arrays[f"target_dates_{key}"] = target_dates[m]
+
+            yv = target_vol[m]
+            ok = np.isfinite(yv)
+            if key in ("train", "val"):
+                ok[-VOL_HORIZON:] = False  # purge: these targets overlap the next split
+            arrays[f"yv_{key}"] = yv.astype(np.float32)
+            arrays[f"volok_{key}"] = ok
 
     stats = {
         "mean": scaler.mean_.tolist(),
@@ -113,8 +133,21 @@ def validate_ticker(ticker: str, arrays: dict, F_scaled: np.ndarray, split: np.n
         if key != "infer":
             assert np.isfinite(arrays[f"y_{key}"]).all(), f"{ticker} {key}: NaN or inf in y"
             assert len(X) == len(arrays[f"y_{key}"]), f"{ticker} {key}: X and y length differ"
+            ok = arrays[f"volok_{key}"]
+            yv = arrays[f"yv_{key}"]
+            assert len(ok) == len(X) and len(yv) == len(X), f"{ticker} {key}: volatility arrays have wrong length"
+            assert ok.sum() > 0, f"{ticker} {key}: no usable volatility samples"
+            assert np.isfinite(yv[ok]).all(), f"{ticker} {key}: NaN in usable volatility targets"
 
     assert len(arrays["X_infer"]) == 1, f"{ticker}: expected exactly one inference window"
+
+    # Volatility targets: only the last VOL_HORIZON-1 test samples are unknown; train/val are complete.
+    assert np.isfinite(arrays["yv_train"]).all() and np.isfinite(arrays["yv_val"]).all(), \
+        f"{ticker}: unexpected NaN in train/val volatility targets"
+    assert int((~np.isfinite(arrays["yv_test"])).sum()) == VOL_HORIZON - 1, \
+        f"{ticker}: expected exactly {VOL_HORIZON - 1} unknown test volatility targets"
+    for key in ["train", "val"]:
+        assert not arrays[f"volok_{key}"][-VOL_HORIZON:].any(), f"{ticker} {key}: boundary samples not purged"
 
     # Chronological order of samples across splits
     d = {k: arrays[f"dates_{k}"] for k in ["train", "val", "test", "infer"]}
@@ -146,7 +179,7 @@ def main() -> None:
         raise FileNotFoundError(f"{FEATURES_FILE} not found. Run src/features/build_features.py first.")
 
     df = pd.read_csv(FEATURES_FILE, parse_dates=["Date", "target_date"])
-    feature_cols = [c for c in df.columns if c not in NON_FEATURE_COLUMNS]
+    feature_cols = select_feature_columns(df.columns)
     log.info("Window = %d days, %d features: %s", WINDOW, len(feature_cols), feature_cols)
 
     scaler_json = {"window": WINDOW, "feature_columns": feature_cols, "scalers": {}}
@@ -171,6 +204,9 @@ def main() -> None:
             "val": len(arrays["X_val"]),
             "test": len(arrays["X_test"]),
             "infer": len(arrays["X_infer"]),
+            "vol_train": int(arrays["volok_train"].sum()),
+            "vol_val": int(arrays["volok_val"].sum()),
+            "vol_test": int(arrays["volok_test"].sum()),
             "train_mean_absmax": float(np.abs(train_rows.mean(axis=0)).max()),
             "train_std_min": float(train_rows.std(axis=0).min()),
             "train_std_max": float(train_rows.std(axis=0).max()),
@@ -183,16 +219,20 @@ def main() -> None:
     SCALER_FILE.write_text(json.dumps(scaler_json, indent=2))
     log.info("Saved scaler statistics to %s", SCALER_FILE)
 
+    s = pd.DataFrame(summary)
     print("\nSamples per split (each sample = one 60-day window):")
-    print(pd.DataFrame(summary)[["ticker", "train", "val", "test", "infer"]].to_string(index=False))
+    print(s[["ticker", "train", "val", "test", "infer"]].to_string(index=False))
+
+    print("\nSamples usable by the volatility models (after purging boundaries / unknown targets):")
+    print(s[["ticker", "vol_train", "vol_val", "vol_test"]].to_string(index=False))
 
     print("\nScaling sanity check:")
-    print(pd.DataFrame(summary)[["ticker", "train_mean_absmax", "train_std_min", "train_std_max",
-                                 "val_absmax", "test_absmax"]].round(3).to_string(index=False))
+    print(s[["ticker", "train_mean_absmax", "train_std_min", "train_std_max",
+             "val_absmax", "test_absmax"]].round(3).to_string(index=False))
     print("\nTrain should be ~0 mean and ~1 std (it was fitted there). val/test are NOT forced to that.")
     print("A large val_absmax or test_absmax (say above 8) means those periods contain values far outside")
     print("the training range, i.e. a regime shift. That is information, not a bug.")
-    print("\nNext: the LSTM loads data/processed/sequences_<TICKER>.npz")
+    print("\nNext: the models load data/processed/sequences_<TICKER>.npz")
 
 
 if __name__ == "__main__":

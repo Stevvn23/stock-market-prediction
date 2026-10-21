@@ -4,17 +4,21 @@ build_features.py
 Phase 2, step 1: turn raw OHLCV prices into a leakage-safe feature table.
 
 Input : data/raw/stock_prices.csv        (Date, Ticker, Open, High, Low, Close, Volume)
-Output: data/processed/features.csv      (features + target + chronological split label)
+Output: data/processed/features.csv      (features + targets + chronological split label)
 
 Design rules (see project brief, section 8):
   * Every feature at date t uses only data up to and including t (trailing windows only).
   * Everything is computed PER TICKER. Tickers are never mixed into one sequence.
-  * Target = next trading day's log return, NOT the raw price level.
+  * Return target  = next trading day's log return, NOT the raw price level.
     Predicted close is recovered later as: close_t * exp(predicted_return).
     A persistence baseline ("tomorrow = today") is then simply predicted_return = 0.
+  * Volatility target = log of the realized volatility over the NEXT 5 trading days,
+    0.5 * log(mean(r_{t+1} ... r_{t+5} squared)). It only uses future returns, never features.
   * Features are scale-free (ratios / returns), so no feature depends on the price level.
   * Split is chronological and shared by all tickers (same cutoff dates).
   * NO scaling happens here. Scalers are fitted on the training split only, later.
+  * Every column that is a label or comes from the future starts with "target_".
+    Downstream scripts treat any column starting with "target_" as NOT a feature.
 """
 
 from pathlib import Path
@@ -33,6 +37,7 @@ OUTPUT_FILE = PROJECT_ROOT / "data" / "processed" / "features.csv"
 
 TRAIN_FRAC = 0.70
 VAL_FRAC = 0.15  # the remaining 15% is the test set
+VOL_HORIZON = 5  # trading days used for the forward realized-volatility target
 
 FEATURE_COLUMNS = [
     "ret_1",
@@ -72,7 +77,7 @@ def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
 
 
 def build_ticker_features(g: pd.DataFrame) -> pd.DataFrame:
-    """Compute features and target for a single ticker, sorted by Date."""
+    """Compute features and targets for a single ticker, sorted by Date."""
     g = g.sort_values("Date").reset_index(drop=True).copy()
     close = g["Close"]
 
@@ -98,11 +103,15 @@ def build_ticker_features(g: pd.DataFrame) -> pd.DataFrame:
     g["hl_range"] = (g["High"] - g["Low"]) / close
     g["volume_ratio_20"] = np.log(g["Volume"] / g["Volume"].rolling(20).mean())
 
-    # Target: the NEXT trading day's information. shift(-1) is only used for labels,
-    # never for features.
+    # Targets: the FUTURE. shift(-1) etc. are only used for labels, never for features.
     g["target_date"] = g["Date"].shift(-1)
     g["target_close"] = close.shift(-1)
     g["target_ret"] = np.log(g["target_close"] / close)
+
+    # Forward realized volatility over the next VOL_HORIZON days (log scale).
+    # ret_1 at t+k is the return from t+k-1 to t+k, so k = 1..5 covers the next 5 sessions.
+    fwd_sq = sum(g["ret_1"].shift(-k) ** 2 for k in range(1, VOL_HORIZON + 1)) / VOL_HORIZON
+    g["target_logvol5"] = 0.5 * np.log(fwd_sq + 1e-12)
 
     return g
 
@@ -115,13 +124,14 @@ def assign_split(df: pd.DataFrame) -> pd.DataFrame:
     """
     Label each row: train / val / test / inference.
 
-    Rows with a known target are split by date, earliest 70% train, next 15% val,
+    Rows with a known next-day return are split by date, earliest 70% train, next 15% val,
     last 15% test. The most recent row of each ticker has no target yet, so it is
     labelled "inference" (used later to produce tomorrow's forecast).
 
     Note: the target of the last row in a split falls on the first day of the next
-    split. This is a standard, minor boundary overlap; the sequence builder keeps
-    inputs strictly in the past.
+    split. For the 1-day return this is a standard, minor boundary overlap. The 5-day
+    volatility target overlaps by up to 4 days, so build_sequences.py purges those
+    boundary samples for the volatility task.
     """
     labelled_dates = np.sort(df.loc[df["target_ret"].notna(), "Date"].unique())
     n = len(labelled_dates)
@@ -161,6 +171,11 @@ def validate_output(df: pd.DataFrame) -> None:
     assert (df[df["split"] == "inference"].groupby("Ticker").size() == 1).all(), \
         "Each ticker should have exactly one inference row"
 
+    # The volatility target needs VOL_HORIZON future returns, so exactly the last VOL_HORIZON rows lack it.
+    missing_vol = df.groupby("Ticker")["target_logvol5"].apply(lambda s: int(s.isna().sum()))
+    assert (missing_vol == VOL_HORIZON).all(), f"Unexpected missing volatility targets: {missing_vol.to_dict()}"
+    assert np.isfinite(df["target_logvol5"].dropna().to_numpy()).all(), "inf in volatility target"
+
     log.info("Output validation passed.")
 
 
@@ -179,7 +194,7 @@ def main() -> None:
     df = pd.concat(parts, ignore_index=True)
 
     # Drop the warm-up rows where trailing windows are not full yet.
-    # The latest row (no target) is kept on purpose for inference.
+    # The latest rows (no target yet) are kept on purpose for inference.
     warmup_mask = df[FEATURE_COLUMNS].isna().any(axis=1)
     log.info("Dropping %d warm-up rows with incomplete indicators.", warmup_mask.sum())
     df = df[~warmup_mask].reset_index(drop=True)
@@ -187,7 +202,8 @@ def main() -> None:
     df = assign_split(df)
     validate_output(df)
 
-    keep = ["Date", "Ticker", "Close"] + FEATURE_COLUMNS + ["target_date", "target_close", "target_ret", "split"]
+    keep = (["Date", "Ticker", "Close"] + FEATURE_COLUMNS +
+            ["target_date", "target_close", "target_ret", "target_logvol5", "split"])
     df = df[keep].sort_values(["Ticker", "Date"]).reset_index(drop=True)
 
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -202,6 +218,11 @@ def main() -> None:
 
     print("\nTarget (next-day log return) on the TRAIN split:")
     print(df[df["split"] == "train"].groupby("Ticker")["target_ret"].describe()[["mean", "std", "min", "max"]])
+
+    train = df[df["split"] == "train"]
+    ann = train.groupby("Ticker")["target_logvol5"].apply(lambda s: float(np.exp(s.mean()) * np.sqrt(252) * 100))
+    print("\nTypical forward 5-day realized volatility on the TRAIN split (annualized %):")
+    print(ann.round(1).to_string())
 
 
 if __name__ == "__main__":

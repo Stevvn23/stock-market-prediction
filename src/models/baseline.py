@@ -137,7 +137,7 @@ def main() -> None:
         raise FileNotFoundError(f"{FEATURES_FILE} not found. Run src/features/build_features.py first.")
 
     df = pd.read_csv(FEATURES_FILE, parse_dates=["Date", "target_date"])
-    feature_cols = [c for c in df.columns if c not in NON_FEATURE_COLUMNS]
+    feature_cols = [c for c in df.columns if c not in NON_FEATURE_COLUMNS and not c.startswith("target_")]
     log.info("Using %d features: %s", len(feature_cols), feature_cols)
 
     all_rows = []
