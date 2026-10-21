@@ -22,3 +22,5 @@ data/predictions/*.csv
 # Model artifacts
 models/*.keras
 models/*.pkl
+data/processed/*.npz
+models/*.json
