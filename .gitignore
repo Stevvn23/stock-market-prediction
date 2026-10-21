@@ -1,0 +1,24 @@
+# Python environment
+.venv/
+__pycache__/
+*.py[cod]
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.ipynb_checkpoints/
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Generated datasets (keep folders, ignore the CSVs)
+data/raw/*.csv
+data/processed/*.csv
+data/predictions/*.csv
+
+# Model artifacts
+models/*.keras
+models/*.pkl
