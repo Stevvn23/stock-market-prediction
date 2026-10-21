@@ -4,12 +4,12 @@ yfinance>=0.2.60,<2.0
 pandas-market-calendars>=5.0,<6.0
 
 # Data processing
-pandas>=2.2,<3.0
+pandas>=2.2,<4.0
 numpy>=1.26,<3.0
 
 # Machine learning and evaluation
 scikit-learn>=1.5,<2.0
-tensorflow>=2.16,<2.20
+tensorflow>=2.16,<2.22
 
 # Visualization and experimentation
 matplotlib>=3.8,<4.0
