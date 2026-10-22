@@ -10,8 +10,11 @@ Never create text files with PowerShell `>` (UTF-16 trap). Edit files in VS Code
 The user is in Malaysia (UTC+8). US close (16:00 ET) is 04:00 MYT while US daylight time lasts (until 2026-11-01), then 05:00 MYT.
 
 ## Pipeline (all scripts run from the project root)
-1. `src/data/fetch_data.py` -> `data/raw/stock_prices.csv` (5y daily, adjusted close).
-   WARNING: if run while the US market is open, yfinance can return today's partial bar. Fetch only after the close.
+1. `src/data/fetch_data.py` -> `data/raw/stock_prices.csv` (5y daily). Price definition: Close is SPLIT-adjusted but
+   NOT dividend-adjusted (`auto_adjust=False`). Keep it that way everywhere. Dividend effect on these three stocks is
+   small (an ex-dividend day drops the close by about 0.2 to 0.3 percent, against 1.5 to 3.5 percent daily volatility).
+   Hardened version: drops a partial bar from a session still open, retries downloads, writes atomically only after all
+   checks pass, `--strict` exits with code 3 (nothing saved) when data is behind the latest completed session.
 2. `src/features/build_features.py` -> `data/processed/features.csv`
    12 scale-free features. Targets: `target_ret` (next-day log return), `target_logvol5` (log realized volatility,
    next 5 days). Any column starting with `target_` is never a feature. Split by percentage (70/15/15), shared dates.
@@ -56,8 +59,10 @@ README-ready conclusion: no edge on next-day returns; deep learning did not reli
 - Chronological splits, train-only scalers, separate sequences per ticker, forecast date separate from target date.
 - Report results honestly. No claims of predictive accuracy without measured evidence.
 - Treat test rmse_ret_vs_zero below 0.95 or volatility r2_oos above 0.7 as suspicious: check leakage.
-- Prices are adjusted closes, which get re-scaled retroactively after dividends: score live forecasts on returns,
-  not on stored price levels.
+- Close is split-adjusted, so history is re-scaled retroactively after a stock split (rare). Score live forecasts on
+  returns computed from one consistent download, not on stored price levels.
+- Known risk for automation: Yahoo (yfinance) sometimes rate-limits or blocks requests from cloud runners such as
+  GitHub Actions. Retries are built in; if it proves flaky, add a fallback data source.
 
 ## Next steps (suggested order)
 1. Create the GitHub repository (private first) and push. The work exists only on the user's computer. Local branch
