@@ -1,4 +1,4 @@
-# Stock Market Prediction: Project Status (2026-10-22, end of day 2)
+# Stock Market Prediction: Project Status (2026-10-22, end of day 2, plan updated)
 
 Handoff note for continuing, with me or any other assistant. Replaces the 2026-10-21 version.
 
@@ -64,19 +64,56 @@ README-ready conclusion: no edge on next-day returns; deep learning did not reli
 - Known risk for automation: Yahoo (yfinance) sometimes rate-limits or blocks requests from cloud runners such as
   GitHub Actions. Retries are built in; if it proves flaky, add a fallback data source.
 
-## Next steps (suggested order)
-1. Create the GitHub repository (private first) and push. The work exists only on the user's computer. Local branch
-   is master, no remote yet; rename to main.
-2. Decide how models persist for GitHub Actions. `.gitignore` currently excludes `*.keras` and `models/*.json`,
-   so a runner would have no models. Recommended: commit the small frozen model files and JSONs, and let the Action
-   push the output CSVs to a separate `data` branch (free, and Power BI can read the raw CSV URLs).
-3. `src/models/score_live.py`: for live forecasts whose target date has passed, compute actual return / 5-day
-   volatility from raw prices and write `live_scores.csv` (only is_live=True rows).
-4. Power BI: data model from the CSVs; pages Market Overview, Prediction and Evaluation, Pipeline Monitoring,
-   plus a Live Track Record page (LSTM vs baselines on live forecasts only).
-5. GitHub Actions: daily schedule after the close plus vendor delay (and before the next open), retries, holiday
-   awareness, failure alerts. Then tests, README, screenshots.
+## Done so far
+Data fetch (hardened), features, sequences, return and volatility baselines, return and volatility LSTMs, evaluation
+and diagnosis, predict.py (first backfill run done), repository pushed to GitHub.
+
+## Open issue to check first
+On 2026-10-22 (about 10:30 ET) Yahoo returned AAPL rows up to 10-20 plus a partial 10-22 bar, and NO row for 2026-10-21.
+`fetch_data.py --strict` correctly refused to save. Re-run it on a morning (MYT, after 06:00). If 10-21 is still
+missing: try a different request form (start/end dates instead of period) or add a fallback source.
+predict.py refuses to forecast across a gap inside the 60-day window, by design.
+
+## Plan for the next days (one evening session each, assuming 1 to 2 hours)
+- Every morning until automation runs (MYT after 06:00): `fetch_data.py --strict`, then check the result.
+- Fri 10/23: GitHub Actions. Weekday schedule at 23:30 UTC (07:30 MYT): fetch --strict with retries, build_features,
+  predict, push outputs to a `data` branch. Adjust `.gitignore` so the small frozen model files (`*.keras`, the JSONs
+  in models/) are committed. Manual test run (workflow_dispatch). A push before Fri 23:30 UTC means the first live
+  forecast (Friday close, target Monday) gets logged.
+- Sat 10/24: `score_live.py` (scores only is_live=True forecasts once their target date has passed, returns based).
+  Move the ticker list into one config file and remove the hard-coded lists (fetch_data, baseline, baseline_vol,
+  train, train_vol, predict) so expansion is mostly configuration.
+- Sun 10/25: Power BI data model. Decide to make the repository public (private raw files are not readable by Power BI
+  Service; the data is public market data plus forecasts). Load the CSVs, build relationships and measures.
+- Mon 10/26 and Tue 10/27: Power BI pages: Market Overview, Prediction and Evaluation, Pipeline Monitoring,
+  Live Track Record (LSTM vs baselines on live forecasts only).
+- Wed 10/28 and Thu 10/29: basic README (the repository is public by then), architecture diagram, screenshots,
+  a few automated tests, monthly retraining procedure. No LinkedIn work yet.
+Note: the Live Track Record needs 60 or more trading days (about 3 months) before it supports any statistical claim.
+Present it as "accumulating" until then.
+
+## Phase 2 (after the plan above): more companies and a bigger model
+Start Fri 10/30, about 5 to 6 evenings, done around 11/5 (estimate; depends on Yahoo limits and training time).
+Order: (1) pick the universe, test Yahoo at that scale, lengthen history; (2) config-driven code, new sequences and
+splits; (3) pooled LSTM plus baselines plus optional LightGBM; (4) pooled evaluation and honest write-up of results;
+(5) plug into the daily pipeline and Power BI (ticker slicer, model-version comparison).
+The new model is ADDED next to the old one under a new version name (for example lstm_pool_v2). It never replaces
+lstm_v1, so the live track record of v1 stays intact and the two versions can be compared on the same live days.
+- Choose a fixed large-cap list and record the selection date (a list of today's index members has survivorship bias;
+  live forecasts are not affected by it).
+- Lengthen history to 10 years or more (more market regimes). Splits move, so everything is retrained.
+- One pooled LSTM trained on all tickers (return and volatility) instead of one per ticker. Same chronological split
+  dates for all tickers. Features are already scale-free. Consider scaling targets by each ticker's volatility so
+  high-volatility names do not dominate the loss.
+- Keep the baselines (persistence, training mean, HAR, constant). Optionally add a gradient-boosted tree model
+  (LightGBM) as an extra benchmark.
+- Pooled evaluation across tickers, with uncertainty that respects same-day correlation (block or date-clustered).
+- Check Yahoo rate limits, GitHub Actions runtime, and storage size before scaling.
+
+## Last step: LinkedIn and portfolio write-up (only after Phase 2)
+The user wants to build the whole system first, and bigger, before any LinkedIn work. At the very end: final README
+polish, final screenshots, results summary with honest conclusions, and the LinkedIn post.
 
 ## Git
-Local repository on branch master, no remote. Commit regularly:
-`git add .gitignore src/ requirements.txt requirements-lock.txt` then `git commit -m "..."`.
+Remote: origin = https://github.com/Stevvn23/stock-market-prediction.git (private), branch main, pushed.
+Commit regularly: `git add src/ PROJECT_STATUS.md` then `git commit -m "..."` then `git push`.
