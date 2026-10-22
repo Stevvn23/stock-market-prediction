@@ -15,10 +15,11 @@ Key rules
   * Frozen inputs. The scaler, target statistics and baseline coefficients come from the files written when the
     models were trained. This script never refits anything, so a new day of data cannot silently change the models.
     It checks that those files belong together and stops if they do not.
-  * Live forecasts only. A forecast is written as is_live=True only if it is issued BEFORE the target session opens.
-    If the data is stale (the vendor has not published the latest bar) or the target session has already started,
-    nothing is written, the run is logged as not_live and the exit code is 3. --allow-backfill writes the rows
-    anyway with is_live=False, for development only. Those rows never count as a track record.
+  * Live forecasts only. A forecast is written as is_live=True only if it is built on a COMPLETED session and issued
+    BEFORE the target session opens. If the data is stale (the vendor has not published the latest bar), if the last
+    bar is a partial bar from a session still in progress, or if the target session has already started, nothing is
+    written, the run is logged as not_live and the exit code is 3. --allow-backfill writes the rows anyway with
+    is_live=False, for development only. Those rows never count as a track record.
   * Append only. A forecast that already exists (same ticker, forecast date, target type, model) is kept, not
     replaced, so re-running the job cannot rewrite history. --overwrite exists for development.
   * Dates come from the NYSE calendar (pandas-market-calendars), so weekends and holidays are skipped correctly.
@@ -239,9 +240,13 @@ def run(now: pd.Timestamp, args):
 
         nxt = sessions_after(cal, fdate, VOL_HORIZON)
         t1, t5 = nxt.index[0], nxt.index[-1]
-        is_live = bool(nxt.iloc[0]["market_open"] > now)
+        # Live = built on a COMPLETED session and issued before the next session opens.
+        is_live = bool(fdate <= latest_done and nxt.iloc[0]["market_open"] > now)
         if not is_live:
-            if fdate < latest_done:
+            if fdate > latest_done:
+                why = (f"the last bar ({fdate.date()}) belongs to a session that has not closed yet, so it is a partial bar; "
+                       "fetch the data again after the close")
+            elif fdate < latest_done:
                 why = (f"stale data (last bar {fdate.date()}, latest completed session {latest_done.date()}); "
                        "the vendor may not have published the latest bar yet")
             else:
