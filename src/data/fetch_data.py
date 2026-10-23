@@ -1,7 +1,7 @@
 """
 fetch_data.py
 
-Download five years of daily OHLCV data for AAPL, MSFT and NVDA and save it as data/raw/stock_prices.csv.
+Download five years of daily OHLCV data for the tickers listed in config/universe.json (AAPL, MSFT, NVDA) and save it as data/raw/stock_prices.csv.
 
 Price definition: Close is split-adjusted but NOT dividend-adjusted (auto_adjust=False). Open, High and Low
 follow the same convention. Keep this consistent everywhere in the project.
@@ -23,6 +23,7 @@ Exit codes: 0 ok, 3 not ready (stale data in strict mode), 1 any other error.
 
 from pathlib import Path
 import argparse
+import json
 import logging
 import os
 import sys
@@ -42,7 +43,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 OUTPUT_FILE = RAW_DATA_DIR / "stock_prices.csv"
 
-TICKERS = ["AAPL", "MSFT", "NVDA"]
+TICKERS = json.loads((PROJECT_ROOT / "config" / "universe.json").read_text(encoding="utf-8"))["tickers"]
 HISTORY_PERIOD = "5y"
 MIN_ROWS_PER_TICKER = 1000          # five years is about 1255 sessions; far fewer means a truncated download
 GAP_CHECK_DAYS = 100                # calendar days checked for missing sessions (the models read the last 60 sessions)

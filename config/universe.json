@@ -1,0 +1,4 @@
+{
+  "tickers": ["AAPL", "MSFT", "NVDA"],
+  "note": "Single source of truth for the ticker list. Changing it also requires retraining (new scalers and models) before predict.py will run."
+}

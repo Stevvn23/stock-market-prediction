@@ -1,6 +1,6 @@
 name: Daily forecast
 
-# Pipeline: fetch (strict) -> build_features -> predict -> publish CSVs to the `data` branch.
+# Pipeline: fetch (strict) -> build_features -> predict -> score_live -> publish CSVs to the `data` branch.
 # Training scripts are NOT run here. The models are frozen files committed in main/models/.
 #
 # Schedule (UTC). NYSE closes at 20:00 UTC (summer) or 21:00 UTC (winter). The first run is at 23:30 UTC on the
@@ -81,6 +81,10 @@ jobs:
             exit 0
           fi
           exit "$code"
+
+      - name: Score live forecasts against realized outcomes
+        if: steps.fetch.outputs.exit_code == '0'
+        run: python src/models/score_live.py
 
       - name: Publish CSVs to the data branch
         if: always()

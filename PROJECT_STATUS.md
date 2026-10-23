@@ -1,4 +1,4 @@
-# Stock Market Prediction: Project Status (2026-10-23, day 3, GitHub Actions written)
+# Stock Market Prediction: Project Status (2026-10-23, day 3, Actions running, live scoring added)
 
 Handoff note for continuing, with me or any other assistant. Replaces the 2026-10-22 version.
 
@@ -26,6 +26,13 @@ The user is in Malaysia (UTC+8). US close (16:00 ET) is 04:00 MYT while US dayli
    ensemble; writes `models/vol_baselines.json`), `train_vol.py` (same structure as train.py).
 6. `src/diagnostics/diagnose_vol.py`: diagnostic only, never used to tune.
 7. `src/models/predict.py`: daily forecast, see below.
+8. `src/models/score_live.py`: scores ONLY is_live=True forecasts once the outcome exists. Outcomes come from
+   features.csv (target_ret, target_logvol5) so definitions match training. Writes `data/predictions/live_scores.csv`
+   (derived, rebuilt each run) and `live_summary.csv` (per ticker, target, model, plus pooled ALL: rmse, mae, bias,
+   direction accuracy, corr, rmse vs persistence for returns / vs HAR for volatility). status stays "accumulating"
+   until n >= 60 (returns) or 120 (vol, effective sample n/5). No option to include non-live rows.
+9. `config/universe.json`: the ticker list, read by fetch_data, baseline_vol (and train_vol), predict, train.
+   Changing it requires retraining first (scalers and models are per ticker).
 
 ## Evaluation results (test split, ~185 trading days, one look per model version)
 Return task: no usable edge. rmse_ret_vs_zero for the LSTM ensemble 0.994 / 1.008 / 1.001 (AAPL / MSFT / NVDA);
@@ -75,14 +82,17 @@ Day 3 (written, awaiting the user's first push and manual run): `.github/workflo
 - Triggers: cron 23:30 UTC Mon-Fri (same evening as the session) plus retries 02:30, 06:30, 10:30 UTC Tue-Sat;
   `workflow_dispatch` with an `allow_backfill` checkbox (development only). One run at a time (concurrency group).
 - Steps: checkout, Python 3.11, install `requirements-ci.txt` (tensorflow-cpu 2.21, keras 3.15.1, pinned like the dev
-  machine), restore prediction history from the `data` branch, fetch --strict, build_features, predict, publish.
+  machine), restore prediction history from the `data` branch, fetch --strict, build_features, predict, score_live,
+  publish.
 - Exit code 3 (data not ready, or forecast not live) is turned into a green run with a warning annotation, so the
   next scheduled retry can succeed. Any other non-zero exit fails the run (red, GitHub emails the owner).
 - Frozen models and JSONs are committed in `main/models/`. Generated CSVs live on the orphan `data` branch:
-  raw prices, features, stock_predictions.csv, pipeline_logs.csv. `publish_data.sh` refuses to publish if the new
+  raw prices, features, stock_predictions.csv, pipeline_logs.csv, live_scores.csv, live_summary.csv. `publish_data.sh` refuses to publish if the new
   prediction file would drop any previously published line (protects the track record).
+- First manual run on GitHub (2026-10-23 12:08 UTC) succeeded in 1m30s and wrote 18 live rows (forecast date
+  2026-10-22, target 10-23, written before the open, is_live=True). These are the first rows of the live track record.
 - Tested locally against a bare git remote: first publish (creates the branch), no-change run, append, restore into a
-  fresh clone, stale-copy refusal. Workflow passes actionlint. NOT yet run on GitHub.
+  fresh clone, stale-copy refusal. Workflow passes actionlint. 
 - Power BI raw URL pattern: https://raw.githubusercontent.com/<owner>/<repo>/data/data/predictions/stock_predictions.csv
   (repository must be public for Power BI Service).
 
@@ -96,9 +106,7 @@ predict.py refuses to forecast across a gap inside the 60-day window, by design.
 - Every morning until automation runs (MYT after 06:00): `fetch_data.py --strict`, then check the result.
 - Fri 10/23: GitHub Actions (written; user commits, pushes and runs the manual test). A push before Fri 23:30 UTC
   means the first live forecast (Friday close, target Monday) gets logged by the scheduled run.
-- Sat 10/24: `score_live.py` (scores only is_live=True forecasts once their target date has passed, returns based).
-  Move the ticker list into one config file and remove the hard-coded lists (fetch_data, baseline, baseline_vol,
-  train, train_vol, predict) so expansion is mostly configuration.
+- Sat 10/24 (done early, on 10/23): score_live.py and config/universe.json, wired into the workflow.
 - Sun 10/25: Power BI data model. Decide to make the repository public (private raw files are not readable by Power BI
   Service; the data is public market data plus forecasts). Load the CSVs, build relationships and measures.
 - Mon 10/26 and Tue 10/27: Power BI pages: Market Overview, Prediction and Evaluation, Pipeline Monitoring,

@@ -51,7 +51,7 @@ PRED_DIR = PROJECT_ROOT / "data" / "predictions"
 MODEL_DIR = PROJECT_ROOT / "models"
 
 MODEL_VERSION = "lstm_v1"
-TICKERS = ["AAPL", "MSFT", "NVDA"]
+TICKERS = json.loads((PROJECT_ROOT / "config" / "universe.json").read_text(encoding="utf-8"))["tickers"]
 LSTM_UNITS = 32
 DENSE_UNITS = 16
 DROPOUT = 0.2

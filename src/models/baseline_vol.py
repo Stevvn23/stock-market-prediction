@@ -56,7 +56,7 @@ LSTM_PRED_FILE = PROJECT_ROOT / "data" / "predictions" / "lstm_vol_predictions.c
 OUTPUT_FILE = PROJECT_ROOT / "data" / "predictions" / "baseline_vol_metrics.csv"
 FROZEN_FILE = PROJECT_ROOT / "models" / "vol_baselines.json"  # coefficients frozen for daily inference (predict.py)
 
-TICKERS = ["AAPL", "MSFT", "NVDA"]
+TICKERS = json.loads((PROJECT_ROOT / "config" / "universe.json").read_text(encoding="utf-8"))["tickers"]
 RIDGE_ALPHAS = [0.1, 1, 10, 100, 1000, 10000]
 EVAL_SPLITS = ["val", "test"]
 ANNUALIZE = np.sqrt(252)

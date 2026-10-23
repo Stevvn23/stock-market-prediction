@@ -64,7 +64,7 @@ PRED_DIR = PROJECT_ROOT / "data" / "predictions"
 PRED_FILE = PRED_DIR / "stock_predictions.csv"
 LOG_FILE = PRED_DIR / "pipeline_logs.csv"
 
-TICKERS = ["AAPL", "MSFT", "NVDA"]
+TICKERS = json.loads((PROJECT_ROOT / "config" / "universe.json").read_text(encoding="utf-8"))["tickers"]
 VOL_HORIZON = 5
 FEATURE_VERSION = "features_v1"
 

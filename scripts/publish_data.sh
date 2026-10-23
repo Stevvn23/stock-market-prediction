@@ -16,6 +16,8 @@ FILES=(
   "data/processed/features.csv"
   "data/predictions/stock_predictions.csv"
   "data/predictions/pipeline_logs.csv"
+  "data/predictions/live_scores.csv"
+  "data/predictions/live_summary.csv"
 )
 
 ROOT="$(pwd)"
