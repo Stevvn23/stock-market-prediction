@@ -1,0 +1,1 @@
+ticker,target_type,model,model_version,n,n_effective,first_forecast_date,last_forecast_date,rmse,mae,bias,direction_acc,corr,reference_model,rmse_vs_reference,status
