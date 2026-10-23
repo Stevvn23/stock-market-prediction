@@ -91,6 +91,10 @@ Day 3 (written, awaiting the user's first push and manual run): `.github/workflo
   prediction file would drop any previously published line (protects the track record).
 - First manual run on GitHub (2026-10-23 12:08 UTC) succeeded in 1m30s and wrote 18 live rows (forecast date
   2026-10-22, target 10-23, written before the open, is_live=True). These are the first rows of the live track record.
+- Found on the 2nd GitHub run: re-saving the forecast file with pandas' default CSV parser changed the last digits of
+  floats in old rows (11 of 18 lines), and the line-exact publish guard refused to publish (correct but too strict).
+  Fixes: predict.py reads the history with float_precision="round_trip" (old rows now stay byte for byte), and
+  publish_data.sh compares forecasts by key (ticker, forecast_date, target_type, model), warning on content changes.
 - Tested locally against a bare git remote: first publish (creates the branch), no-change run, append, restore into a
   fresh clone, stale-copy refusal. Workflow passes actionlint. 
 - Power BI raw URL pattern: https://raw.githubusercontent.com/<owner>/<repo>/data/data/predictions/stock_predictions.csv

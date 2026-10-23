@@ -36,17 +36,34 @@ else
   (cd "$WT" && git checkout --orphan "$DATA_BRANCH" >/dev/null 2>&1 && git rm -rf . >/dev/null 2>&1 || true)
 fi
 
-# Safety net for the append-only files: the new version must still contain every line already published.
-# (Protects the track record if a run started from a stale or empty copy.)
-for f in "data/predictions/stock_predictions.csv" "data/predictions/pipeline_logs.csv"; do
-  if [ -f "$WT/$f" ] && [ -f "$ROOT/$f" ]; then
-    lost="$( { grep -vxFf "$ROOT/$f" "$WT/$f" || true; } | wc -l | tr -d ' ')"
-    if [ "$lost" != "0" ]; then
-      echo "publish_data: REFUSING to publish. $f would drop $lost previously published line(s)." >&2
-      exit 1
-    fi
+# Safety net for the append-only files: nothing already published may disappear.
+#  - pipeline_logs.csv is only ever appended to, so every published line must still be there.
+#  - stock_predictions.csv is compared by KEY (ticker, forecast_date, target_type, model = columns 1,2,3,6), so a
+#    harmless difference in how a number is printed can never block a run, but a lost forecast always does.
+#    If the content of an existing row changed, that is reported as a warning.
+keys() { cut -d, -f1,2,3,6 "$1" | sort -u; }
+
+pf="data/predictions/stock_predictions.csv"
+if [ -f "$WT/$pf" ] && [ -f "$ROOT/$pf" ]; then
+  lost="$( { comm -23 <(keys "$WT/$pf") <(keys "$ROOT/$pf") || true; } | wc -l | tr -d ' ')"
+  if [ "$lost" != "0" ]; then
+    echo "publish_data: REFUSING to publish. $pf would drop $lost previously published forecast key(s)." >&2
+    exit 1
   fi
-done
+  changed="$( { grep -vxFf "$ROOT/$pf" "$WT/$pf" || true; } | wc -l | tr -d ' ')"
+  if [ "$changed" != "0" ]; then
+    echo "publish_data: WARNING: $changed previously published forecast line(s) differ in content from the new file."
+  fi
+fi
+
+lf="data/predictions/pipeline_logs.csv"
+if [ -f "$WT/$lf" ] && [ -f "$ROOT/$lf" ]; then
+  lost="$( { grep -vxFf "$ROOT/$lf" "$WT/$lf" || true; } | wc -l | tr -d ' ')"
+  if [ "$lost" != "0" ]; then
+    echo "publish_data: REFUSING to publish. $lf would drop $lost previously published line(s)." >&2
+    exit 1
+  fi
+fi
 
 copied=0
 for f in "${FILES[@]}"; do

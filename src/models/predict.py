@@ -174,7 +174,10 @@ def merge_and_save(new_rows: pd.DataFrame, overwrite: bool) -> int:
     """Append new rows; existing keys are kept unless overwrite. Atomic write. Returns rows added."""
     PRED_DIR.mkdir(parents=True, exist_ok=True)
     if PRED_FILE.exists():
-        old = pd.read_csv(PRED_FILE, dtype={"forecast_date": str, "target_date": str, "train_end_date": str})
+        # float_precision="round_trip": the default parser can change the last digits of a float, which would silently
+        # rewrite old forecasts every time the file is re-saved. With it, old rows come back byte for byte.
+        old = pd.read_csv(PRED_FILE, dtype={"forecast_date": str, "target_date": str, "train_end_date": str},
+                          float_precision="round_trip")
     else:
         old = pd.DataFrame(columns=COLUMNS)
 
