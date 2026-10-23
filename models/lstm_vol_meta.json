@@ -1,0 +1,83 @@
+{
+  "AAPL": {
+    "model_version": "lstm_vol_v1",
+    "y_mean": -4.266859459787495,
+    "y_std": 0.5074009531228347,
+    "persist_offset": -0.09931697847473694,
+    "ridge_alpha": 0.1,
+    "n_seeds": 5,
+    "best_epochs": [
+      3,
+      5,
+      6,
+      4,
+      14
+    ],
+    "val_ratios": [
+      0.8861848767643362,
+      0.8567283624028552,
+      0.8835086940844145,
+      0.8714435908284217,
+      0.8382772380446374
+    ],
+    "train_samples": 799,
+    "window": 60,
+    "n_features": 12,
+    "horizon_days": 5,
+    "trained_at_utc": "2026-10-21 14:53:36"
+  },
+  "MSFT": {
+    "model_version": "lstm_vol_v1",
+    "y_mean": -4.263229127819457,
+    "y_std": 0.4788435933986575,
+    "persist_offset": -0.11823268554110021,
+    "ridge_alpha": 10,
+    "n_seeds": 5,
+    "best_epochs": [
+      10,
+      13,
+      1,
+      2,
+      1
+    ],
+    "val_ratios": [
+      0.8999774844577484,
+      0.8928015775403262,
+      0.9101026320400938,
+      0.9287785037228943,
+      0.9274244331990709
+    ],
+    "train_samples": 799,
+    "window": 60,
+    "n_features": 12,
+    "horizon_days": 5,
+    "trained_at_utc": "2026-10-21 14:54:23"
+  },
+  "NVDA": {
+    "model_version": "lstm_vol_v1",
+    "y_mean": -3.5337619784478105,
+    "y_std": 0.44528560098098646,
+    "persist_offset": -0.09831407321536997,
+    "ridge_alpha": 0.1,
+    "n_seeds": 5,
+    "best_epochs": [
+      3,
+      2,
+      3,
+      3,
+      2
+    ],
+    "val_ratios": [
+      1.0922752387861958,
+      1.0543965029535702,
+      1.0867905735836205,
+      1.0672608482619377,
+      1.1023790783458698
+    ],
+    "train_samples": 799,
+    "window": 60,
+    "n_features": 12,
+    "horizon_days": 5,
+    "trained_at_utc": "2026-10-21 14:55:04"
+  }
+}

@@ -1,0 +1,87 @@
+name: Daily forecast
+
+# Pipeline: fetch (strict) -> build_features -> predict -> publish CSVs to the `data` branch.
+# Training scripts are NOT run here. The models are frozen files committed in main/models/.
+#
+# Schedule (UTC). NYSE closes at 20:00 UTC (summer) or 21:00 UTC (winter). The first run is at 23:30 UTC on the
+# session day itself; the later runs are retries for when Yahoo has not published the newest bar yet.
+# Every run is idempotent: if the forecast for the latest session already exists, nothing is added.
+on:
+  schedule:
+    - cron: "30 23 * * 1-5"   # 07:30 MYT, same evening as the session
+    - cron: "30 2 * * 2-6"    # retry 1
+    - cron: "30 6 * * 2-6"    # retry 2
+    - cron: "30 10 * * 2-6"   # retry 3
+  workflow_dispatch:
+    inputs:
+      allow_backfill:
+        description: "Development only: also write rows that are not live (is_live=False)"
+        type: boolean
+        default: false
+
+# One run at a time, so two runs can never append to the track record at once.
+concurrency:
+  group: daily-forecast
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  forecast:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TF_CPP_MIN_LOG_LEVEL: "2"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out code and models
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-ci.txt
+
+      - name: Restore prediction history from the data branch
+        run: bash scripts/restore_data.sh
+
+      - name: Fetch prices (strict)
+        id: fetch
+        run: |
+          set +e
+          python src/data/fetch_data.py --strict
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 3 ]; then
+            echo "::warning title=Data not ready::Yahoo data is behind the latest completed session or has a gap. Nothing was saved. A later scheduled run will retry."
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Build features
+        if: steps.fetch.outputs.exit_code == '0'
+        run: python src/features/build_features.py
+
+      - name: Predict
+        id: predict
+        if: steps.fetch.outputs.exit_code == '0'
+        run: |
+          set +e
+          python src/models/predict.py ${{ inputs.allow_backfill && '--allow-backfill' || '' }}
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 3 ]; then
+            echo "::warning title=No live forecast::The forecast would not be live (session not completed or target session already open). Nothing was written."
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Publish CSVs to the data branch
+        if: always()
+        run: bash scripts/publish_data.sh

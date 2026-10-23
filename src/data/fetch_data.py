@@ -12,8 +12,10 @@ Built for unattended daily runs:
   * Downloads are retried with a short wait, because Yahoo sometimes refuses or rate-limits a request.
   * The output file is written only after every check has passed, and it is replaced atomically. A failed or
     stale run therefore never overwrites the last good file.
-  * --strict : if any ticker is behind the latest completed NYSE session, save nothing and exit with code 3
-               ("not ready yet", worth retrying later). Without --strict the same situation is only a warning.
+  * --strict : if any ticker is behind the latest completed NYSE session, or is missing a session inside the recent
+               window the models read (a hole in the vendor data), save nothing and exit with code 3
+               ("not ready yet", worth retrying later; the vendor often repairs holes). Without --strict the same
+               situations are only warnings.
   * --now    : act as if this UTC time were "now" (for tests), e.g. 2026-10-21T23:30:00Z
 
 Exit codes: 0 ok, 3 not ready (stale data in strict mode), 1 any other error.
@@ -43,6 +45,7 @@ OUTPUT_FILE = RAW_DATA_DIR / "stock_prices.csv"
 TICKERS = ["AAPL", "MSFT", "NVDA"]
 HISTORY_PERIOD = "5y"
 MIN_ROWS_PER_TICKER = 1000          # five years is about 1255 sessions; far fewer means a truncated download
+GAP_CHECK_DAYS = 100                # calendar days checked for missing sessions (the models read the last 60 sessions)
 FETCH_ATTEMPTS = 3
 RETRY_WAIT_SECONDS = [10, 30]       # wait before attempt 2 and attempt 3
 EXIT_NOT_READY = 3
@@ -257,6 +260,37 @@ def find_stale_tickers(df: pd.DataFrame, latest_expected) -> list:
     return stale
 
 
+def find_gaps(df: pd.DataFrame, latest_expected) -> dict:
+    """
+    Return {ticker: [missing session dates]} for the recent window.
+
+    The forecast models read the last 60 NYSE sessions and need every one of them. A session that the vendor
+    skipped (it happens, and it is often repaired later) would otherwise only show up as a failure in predict.py.
+    """
+
+    if latest_expected is None:
+        return {}
+
+    calendar = mcal.get_calendar("NYSE")
+    start = pd.Timestamp(latest_expected) - pd.Timedelta(days=GAP_CHECK_DAYS)
+    sessions = [d.date() for d in calendar.schedule(start_date=start, end_date=pd.Timestamp(latest_expected)).index]
+
+    gaps = {}
+
+    for ticker in TICKERS:
+        have = set(df.loc[df["Ticker"] == ticker, "Date"])
+        missing = [d for d in sessions if d not in have]
+
+        if missing:
+            logging.warning(
+                "%s is missing %d session(s) in the recent window: %s",
+                ticker, len(missing), [str(d) for d in missing][:10],
+            )
+            gaps[ticker] = missing
+
+    return gaps
+
+
 # --------------------------------------------------
 # 6. Main pipeline
 # --------------------------------------------------
@@ -284,12 +318,17 @@ def main() -> None:
 
     validate_data(combined)
     stale = find_stale_tickers(combined, latest_expected)
+    gaps = find_gaps(combined, latest_expected)
 
-    if stale and args.strict:
+    if (stale or gaps) and args.strict:
+        reasons = []
+        if stale:
+            reasons.append(f"{stale} behind the latest completed session ({latest_expected})")
+        if gaps:
+            reasons.append(f"sessions missing in the recent window for {sorted(gaps)}")
         logging.error(
-            "Not ready: %s behind the latest completed session (%s). Nothing was saved; "
-            "the previous file is untouched. Try again later.",
-            stale, latest_expected,
+            "Not ready: %s. Nothing was saved; the previous file is untouched. Try again later.",
+            "; ".join(reasons),
         )
         sys.exit(EXIT_NOT_READY)
 

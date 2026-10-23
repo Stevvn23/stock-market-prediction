@@ -1,6 +1,6 @@
-# Stock Market Prediction: Project Status (2026-10-22, end of day 2, plan updated)
+# Stock Market Prediction: Project Status (2026-10-23, day 3, GitHub Actions written)
 
-Handoff note for continuing, with me or any other assistant. Replaces the 2026-10-21 version.
+Handoff note for continuing, with me or any other assistant. Replaces the 2026-10-22 version.
 
 ## Fixed requirements (unchanged)
 US stocks AAPL, MSFT, NVDA. LSTM. Power BI. Daily automation (GitHub Actions). CSV storage. Free tools.
@@ -14,7 +14,8 @@ The user is in Malaysia (UTC+8). US close (16:00 ET) is 04:00 MYT while US dayli
    NOT dividend-adjusted (`auto_adjust=False`). Keep it that way everywhere. Dividend effect on these three stocks is
    small (an ex-dividend day drops the close by about 0.2 to 0.3 percent, against 1.5 to 3.5 percent daily volatility).
    Hardened version: drops a partial bar from a session still open, retries downloads, writes atomically only after all
-   checks pass, `--strict` exits with code 3 (nothing saved) when data is behind the latest completed session.
+   checks pass, `--strict` exits with code 3 (nothing saved) when data is behind the latest completed session OR a
+   NYSE session is missing in the last 100 calendar days (gap check).
 2. `src/features/build_features.py` -> `data/processed/features.csv`
    12 scale-free features. Targets: `target_ret` (next-day log return), `target_logvol5` (log realized volatility,
    next 5 days). Any column starting with `target_` is never a feature. Split by percentage (70/15/15), shared dates.
@@ -65,8 +66,25 @@ README-ready conclusion: no edge on next-day returns; deep learning did not reli
   GitHub Actions. Retries are built in; if it proves flaky, add a fallback data source.
 
 ## Done so far
-Data fetch (hardened), features, sequences, return and volatility baselines, return and volatility LSTMs, evaluation
-and diagnosis, predict.py (first backfill run done), repository pushed to GitHub.
+Data fetch (hardened, with gap check), features, sequences, return and volatility baselines, return and volatility
+LSTMs, evaluation and diagnosis, predict.py (first backfill run done), repository pushed to GitHub.
+Day 3 (written, awaiting the user's first push and manual run): `.github/workflows/daily_forecast.yml`,
+`scripts/restore_data.sh`, `scripts/publish_data.sh`, `requirements-ci.txt`.
+
+## Automation design (GitHub Actions)
+- Triggers: cron 23:30 UTC Mon-Fri (same evening as the session) plus retries 02:30, 06:30, 10:30 UTC Tue-Sat;
+  `workflow_dispatch` with an `allow_backfill` checkbox (development only). One run at a time (concurrency group).
+- Steps: checkout, Python 3.11, install `requirements-ci.txt` (tensorflow-cpu 2.21, keras 3.15.1, pinned like the dev
+  machine), restore prediction history from the `data` branch, fetch --strict, build_features, predict, publish.
+- Exit code 3 (data not ready, or forecast not live) is turned into a green run with a warning annotation, so the
+  next scheduled retry can succeed. Any other non-zero exit fails the run (red, GitHub emails the owner).
+- Frozen models and JSONs are committed in `main/models/`. Generated CSVs live on the orphan `data` branch:
+  raw prices, features, stock_predictions.csv, pipeline_logs.csv. `publish_data.sh` refuses to publish if the new
+  prediction file would drop any previously published line (protects the track record).
+- Tested locally against a bare git remote: first publish (creates the branch), no-change run, append, restore into a
+  fresh clone, stale-copy refusal. Workflow passes actionlint. NOT yet run on GitHub.
+- Power BI raw URL pattern: https://raw.githubusercontent.com/<owner>/<repo>/data/data/predictions/stock_predictions.csv
+  (repository must be public for Power BI Service).
 
 ## Open issue to check first
 On 2026-10-22 (about 10:30 ET) Yahoo returned AAPL rows up to 10-20 plus a partial 10-22 bar, and NO row for 2026-10-21.
@@ -76,10 +94,8 @@ predict.py refuses to forecast across a gap inside the 60-day window, by design.
 
 ## Plan for the next days (one evening session each, assuming 1 to 2 hours)
 - Every morning until automation runs (MYT after 06:00): `fetch_data.py --strict`, then check the result.
-- Fri 10/23: GitHub Actions. Weekday schedule at 23:30 UTC (07:30 MYT): fetch --strict with retries, build_features,
-  predict, push outputs to a `data` branch. Adjust `.gitignore` so the small frozen model files (`*.keras`, the JSONs
-  in models/) are committed. Manual test run (workflow_dispatch). A push before Fri 23:30 UTC means the first live
-  forecast (Friday close, target Monday) gets logged.
+- Fri 10/23: GitHub Actions (written; user commits, pushes and runs the manual test). A push before Fri 23:30 UTC
+  means the first live forecast (Friday close, target Monday) gets logged by the scheduled run.
 - Sat 10/24: `score_live.py` (scores only is_live=True forecasts once their target date has passed, returns based).
   Move the ticker list into one config file and remove the hard-coded lists (fetch_data, baseline, baseline_vol,
   train, train_vol, predict) so expansion is mostly configuration.
