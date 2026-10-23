@@ -11,8 +11,9 @@ set -euo pipefail
 
 DATA_BRANCH="${DATA_BRANCH:-data}"
 REMOTE="${REMOTE:-origin}"
+# Raw vendor prices (data/raw/stock_prices.csv) are deliberately NOT published: only data this project derives
+# (features, forecasts, logs, scores) goes on the public data branch.
 FILES=(
-  "data/raw/stock_prices.csv"
   "data/processed/features.csv"
   "data/predictions/stock_predictions.csv"
   "data/predictions/pipeline_logs.csv"
@@ -87,7 +88,22 @@ Generated data branch. Written only by the daily workflow; do not edit by hand.
 Code and documentation are on the main branch.
 EOT
 
+# The raw price file must never live on the data branch (also removes it if an earlier run published it).
+git rm -q -f --ignore-unmatch data/raw/stock_prices.csv
 git add -A
+
+# One-time clean-up: replace the whole branch history with a single commit of the current content.
+# Used to erase the earlier commits that contained raw prices. The guards above have already passed,
+# so published forecasts are carried over unchanged.
+if [ "${RESET_DATA_HISTORY:-0}" = "1" ]; then
+  echo "publish_data: RESET_DATA_HISTORY=1, replacing the history of '$DATA_BRANCH' with one commit."
+  git checkout -q --orphan "${DATA_BRANCH}-squashed"
+  git commit -q -m "data: history reset $(date -u +%Y-%m-%dT%H:%MZ)"
+  git push --force "$REMOTE" "HEAD:refs/heads/$DATA_BRANCH"
+  echo "publish_data: history reset and pushed."
+  exit 0
+fi
+
 if git diff --cached --quiet; then
   echo "publish_data: no changes to publish."
   exit 0

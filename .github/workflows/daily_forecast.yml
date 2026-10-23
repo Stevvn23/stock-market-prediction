@@ -18,6 +18,10 @@ on:
         description: "Development only: also write rows that are not live (is_live=False)"
         type: boolean
         default: false
+      reset_data_history:
+        description: "One-time clean-up: replace the data branch history with a single commit (keeps current content)"
+        type: boolean
+        default: false
 
 # One run at a time, so two runs can never append to the track record at once.
 concurrency:
@@ -88,4 +92,6 @@ jobs:
 
       - name: Publish CSVs to the data branch
         if: always()
+        env:
+          RESET_DATA_HISTORY: ${{ inputs.reset_data_history && '1' || '0' }}
         run: bash scripts/publish_data.sh

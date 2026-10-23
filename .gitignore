@@ -23,3 +23,4 @@ data/predictions/*.csv
 
 data/processed/*.npz
 *.csv.tmp
+PROJECT_STATUS.md
