@@ -159,3 +159,14 @@ RETURN IF ( ISBLANK ( h ), "No runs yet", IF ( h > 80, "Stale: check GitHub Acti
 Failed Runs = CALCULATE ( COUNTROWS ( PipelineLogs ), PipelineLogs[status] = "error" )
 
 Total Runs = COUNTROWS ( PipelineLogs )
+
+
+
+// ---------------------------------------------- Backtest vs Live (table: Backtest) --------------------------------
+// One row per task, ticker, split and model, so these simply read the value (no summing across rows).
+
+Backtest Ratio vs Reference = AVERAGE ( Backtest[rmse_vs_reference] )
+
+Backtest Direction Accuracy = AVERAGE ( Backtest[dir_acc] )
+
+Backtest Samples = MAX ( Backtest[n] )

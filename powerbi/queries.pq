@@ -135,3 +135,24 @@ let
     AddWeekday = Table.AddColumn(AddMonth, "Weekday", each Date.DayOfWeekName([Date], "en-US"), type text)
 in
     AddWeekday
+
+
+
+// ------------------------------------------------------------------------------------------------------------
+// Query name: Backtest
+// Source: results/backtest_results.csv on the MAIN branch (training-time evaluation; changes only when you retrain)
+// ------------------------------------------------------------------------------------------------------------
+let
+    Source = Csv.Document(
+        Web.Contents("https://raw.githubusercontent.com/Stevvn23/stock-market-prediction",
+                     [RelativePath = "main/results/backtest_results.csv"]),
+        [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+    Promoted = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+    Typed = Table.TransformColumnTypes(Promoted, {
+        {"task", type text}, {"ticker", type text}, {"split", type text}, {"model", type text},
+        {"model_family", type text}, {"n", Int64.Type}, {"rmse", type number}, {"reference_model", type text},
+        {"rmse_vs_reference", type number}, {"dir_acc", type number}, {"r2_oos", type number},
+        {"corr", type number}, {"bias", type number}, {"generated_utc", type datetime}
+    }, "en-US")
+in
+    Typed
