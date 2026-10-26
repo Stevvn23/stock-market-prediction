@@ -1,0 +1,161 @@
+// ============================================================================================================
+// DAX measures. In Power BI Desktop: select a table in the Fields pane, Home > New measure, paste ONE measure at
+// a time. The table named in each header is where the measure should live (it only affects where you find it).
+// Table names assumed: Prices, Predictions, LiveScores, LiveSummary, PipelineLogs, Dim_Ticker, Dim_Date.
+// ============================================================================================================
+
+
+// ---------------------------------------------- Market overview (table: Prices) ---------------------------------
+
+Latest Date = MAX ( Prices[Date] )
+
+Latest Close =
+VAR d = MAX ( Prices[Date] )
+RETURN CALCULATE ( MAX ( Prices[Close] ), Prices[Date] = d )
+
+1D Return =
+VAR d = MAX ( Prices[Date] )
+RETURN EXP ( CALCULATE ( AVERAGE ( Prices[ret_1] ), Prices[Date] = d ) ) - 1
+
+5D Return =
+VAR d = MAX ( Prices[Date] )
+RETURN EXP ( CALCULATE ( AVERAGE ( Prices[ret_5] ), Prices[Date] = d ) ) - 1
+
+Volatility 20D Annualized =
+VAR d = MAX ( Prices[Date] )
+RETURN CALCULATE ( AVERAGE ( Prices[vol_20] ), Prices[Date] = d ) * SQRT ( 252 )
+
+RSI 14 =
+VAR d = MAX ( Prices[Date] )
+// rsi_14 is stored on a 0 to 1 scale, so multiply by 100 for the usual 0 to 100 reading.
+RETURN CALCULATE ( AVERAGE ( Prices[rsi_14] ), Prices[Date] = d ) * 100
+
+
+// ---------------------------------------------- Forecasts (table: Predictions) -----------------------------------
+// DAX rule: a boolean filter inside CALCULATE cannot reference a measure directly, so the date is first stored in a
+// variable (fd). Writing  column = [Measure]  inside CALCULATE gives the 'PLACEHOLDER' error.
+// Only live forecasts are ever shown as "the forecast". Backfilled rows (is_live = FALSE) are development data.
+
+Live Forecast Rows =
+CALCULATE ( COUNTROWS ( Predictions ), Predictions[is_live] = TRUE () )
+
+Latest Live Forecast Date =
+CALCULATE ( MAX ( Predictions[forecast_date] ), Predictions[is_live] = TRUE () )
+
+Latest Target Date =
+VAR fd = [Latest Live Forecast Date]
+RETURN
+CALCULATE (
+    MAX ( Predictions[target_date] ),
+    Predictions[is_live] = TRUE (),
+    Predictions[target_type] = "close_1d",
+    Predictions[forecast_date] = fd
+)
+
+Forecast Close (LSTM) =
+VAR fd = [Latest Live Forecast Date]
+RETURN
+CALCULATE (
+    MAX ( Predictions[predicted_close] ),
+    Predictions[is_live] = TRUE (),
+    Predictions[target_type] = "close_1d",
+    Predictions[model] = "lstm_ens",
+    Predictions[forecast_date] = fd
+)
+
+Forecast Move % (LSTM) =
+VAR fd = [Latest Live Forecast Date]
+RETURN
+EXP (
+    CALCULATE (
+        AVERAGE ( Predictions[predicted_ret] ),
+        Predictions[is_live] = TRUE (),
+        Predictions[target_type] = "close_1d",
+        Predictions[model] = "lstm_ens",
+        Predictions[forecast_date] = fd
+    )
+) - 1
+
+Forecast Vol % (LSTM) =
+VAR fd = [Latest Live Forecast Date]
+RETURN
+CALCULATE (
+    AVERAGE ( Predictions[predicted_vol_ann_pct] ),
+    Predictions[is_live] = TRUE (),
+    Predictions[target_type] = "vol_5d",
+    Predictions[model] = "lstm_ens",
+    Predictions[forecast_date] = fd
+)
+
+Forecast Vol % (HAR) =
+VAR fd = [Latest Live Forecast Date]
+RETURN
+CALCULATE (
+    AVERAGE ( Predictions[predicted_vol_ann_pct] ),
+    Predictions[is_live] = TRUE (),
+    Predictions[target_type] = "vol_5d",
+    Predictions[model] = "har",
+    Predictions[forecast_date] = fd
+)
+
+
+// ---------------------------------------------- Live track record (table: LiveScores) ----------------------------
+// errors are predicted minus actual, on log-return scale (close_1d) or log-volatility scale (vol_5d).
+// Do not mix the two target types in one number: always filter or split by target_type.
+
+Scored Forecasts = COUNTROWS ( LiveScores )
+
+Live Days = DISTINCTCOUNT ( LiveScores[forecast_date] )
+
+RMSE = SQRT ( AVERAGEX ( LiveScores, LiveScores[error] ^ 2 ) )
+
+MAE = AVERAGEX ( LiveScores, ABS ( LiveScores[error] ) )
+
+Bias = AVERAGE ( LiveScores[error] )
+
+Direction Accuracy =
+VAR nonzero = FILTER ( LiveScores, LiveScores[predicted] <> 0 )
+VAR hits = FILTER ( nonzero, SIGN ( LiveScores[predicted] ) = SIGN ( LiveScores[actual] ) )
+RETURN DIVIDE ( COUNTROWS ( hits ), COUNTROWS ( nonzero ) )
+
+// Below 1.0 means better than the reference (persistence for returns, HAR for volatility).
+// All models are scored on the same forecast dates, so the ratio of RMSEs is a like for like comparison.
+RMSE vs Reference =
+VAR ref = IF ( SELECTEDVALUE ( LiveScores[target_type] ) = "close_1d", "persistence", "har" )
+RETURN
+    DIVIDE (
+        [RMSE],
+        CALCULATE ( [RMSE], REMOVEFILTERS ( LiveScores[model] ), LiveScores[model] = ref )
+    )
+
+// Honest label: counts distinct forecast DAYS, not rows. Three tickers on the same day are one day of evidence,
+// not three. It shows "Accumulating" until enough days exist; "Readable" still proves nothing on its own.
+Track Record Status =
+VAR minDays = IF ( SELECTEDVALUE ( LiveScores[target_type] ) = "vol_5d", 120, 60 )
+VAR d = [Live Days]
+RETURN
+    IF (
+        ISBLANK ( d ) || d = 0,
+        "Accumulating: no scored days yet",
+        IF ( d < minDays, "Accumulating: " & d & " of " & minDays & " trading days needed", "Readable (" & d & " trading days)" )
+    )
+
+
+// ---------------------------------------------- Pipeline monitoring (table: PipelineLogs) -------------------------
+
+Last Run (UTC) = MAX ( PipelineLogs[run_utc] )
+
+Last Healthy Run (UTC) =
+CALCULATE ( MAX ( PipelineLogs[run_utc] ), PipelineLogs[status] IN { "ok", "no_new_rows" } )
+
+Hours Since Healthy Run =
+DATEDIFF ( [Last Healthy Run (UTC)], UTCNOW (), HOUR )
+
+// 80 hours covers a normal weekend (Friday evening run to Monday evening run).
+Pipeline Health =
+VAR h = [Hours Since Healthy Run]
+RETURN IF ( ISBLANK ( h ), "No runs yet", IF ( h > 80, "Stale: check GitHub Actions", "Healthy" ) )
+
+Failed Runs = CALCULATE ( COUNTROWS ( PipelineLogs ), PipelineLogs[status] = "error" )
+
+Total Runs = COUNTROWS ( PipelineLogs )

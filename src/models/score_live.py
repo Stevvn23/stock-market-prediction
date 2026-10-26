@@ -23,8 +23,11 @@ Metrics
   vol_5d  (log vol)     : rmse, mae, bias, corr, rmse relative to the HAR forecast. Below 1.0 means better than HAR.
   The 5-day windows overlap, so 5 consecutive vol_5d forecasts carry roughly one independent observation:
   n_effective = n / 5 for vol_5d.
-  status = "accumulating" until n reaches MIN_N_FOR_READING, then "readable". "readable" only means the sample is
-  large enough to look at; it does not mean a difference between models is statistically significant.
+  status = "accumulating" until the number of distinct forecast DAYS (n_days) reaches MIN_DAYS_FOR_READING, then
+  "readable". Days are counted, not rows: the pooled "ALL" row holds one forecast per ticker per day, and tickers
+  on the same day move together, so three tickers do not make three independent days.
+  "readable" only means the sample is large enough to look at; it does not mean a difference between models is
+  statistically significant.
 """
 
 from pathlib import Path
@@ -44,12 +47,12 @@ SUMMARY_FILE = PROJECT_ROOT / "data" / "predictions" / "live_summary.csv"
 
 VOL_HORIZON = 5
 REFERENCE = {"close_1d": "persistence", "vol_5d": "har"}      # models the others are compared against
-MIN_N_FOR_READING = {"close_1d": 60, "vol_5d": 120}
+MIN_DAYS_FOR_READING = {"close_1d": 60, "vol_5d": 120}
 MIN_N_FOR_CORR = 20
 
 SCORE_COLUMNS = ["ticker", "forecast_date", "target_type", "model", "model_version", "target_date",
                  "predicted", "actual", "error"]
-SUMMARY_COLUMNS = ["ticker", "target_type", "model", "model_version", "n", "n_effective", "first_forecast_date",
+SUMMARY_COLUMNS = ["ticker", "target_type", "model", "model_version", "n", "n_days", "n_effective", "first_forecast_date",
                    "last_forecast_date", "rmse", "mae", "bias", "direction_acc", "corr", "reference_model",
                    "rmse_vs_reference", "status"]
 
@@ -148,11 +151,13 @@ def summarize(scores: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for (ticker, target_type, model), g in both.groupby(["ticker", "target_type", "model"]):
         n = len(g)
+        n_days = int(g["forecast_date"].nunique())
         row = {
             "ticker": ticker, "target_type": target_type, "model": model,
             "model_version": "/".join(sorted(g["model_version"].astype(str).unique())),
             "n": n,
-            "n_effective": n if target_type == "close_1d" else round(n / VOL_HORIZON, 1),
+            "n_days": n_days,
+            "n_effective": n_days if target_type == "close_1d" else round(n_days / VOL_HORIZON, 1),
             "first_forecast_date": g["forecast_date"].min(),
             "last_forecast_date": g["forecast_date"].max(),
             "rmse": _rmse(g["error"]),
@@ -162,7 +167,7 @@ def summarize(scores: pd.DataFrame) -> pd.DataFrame:
             "corr": np.nan,
             "reference_model": REFERENCE[target_type],
             "rmse_vs_reference": np.nan,
-            "status": "readable" if n >= MIN_N_FOR_READING[target_type] else "accumulating",
+            "status": "readable" if n_days >= MIN_DAYS_FOR_READING[target_type] else "accumulating",
         }
 
         if target_type == "close_1d":
@@ -236,7 +241,7 @@ def main() -> None:
 
     show = summary[summary["ticker"] == "ALL"]
     print("\nPooled live track record (all tickers, live forecasts only):")
-    print(show[["target_type", "model", "n", "n_effective", "rmse", "rmse_vs_reference", "direction_acc",
+    print(show[["target_type", "model", "n", "n_days", "n_effective", "rmse", "rmse_vs_reference", "direction_acc",
                 "status"]].round(4).to_string(index=False))
     print("\nstatus 'accumulating' means too few days to read anything into the numbers.")
 
