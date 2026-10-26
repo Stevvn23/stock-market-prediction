@@ -152,7 +152,28 @@ let
         {"task", type text}, {"ticker", type text}, {"split", type text}, {"model", type text},
         {"model_family", type text}, {"n", Int64.Type}, {"rmse", type number}, {"reference_model", type text},
         {"rmse_vs_reference", type number}, {"dir_acc", type number}, {"r2_oos", type number},
-        {"corr", type number}, {"bias", type number}, {"generated_utc", type datetime}
+        {"corr", type number}, {"bias", type number},
+        {"task_label", type text}, {"split_label", type text}, {"model_label", type text}, {"verdict", type text},
+        {"generated_utc", type datetime}
+    }, "en-US")
+in
+    Typed
+
+
+
+// ------------------------------------------------------------------------------------------------------------
+// Query name: BacktestSeries
+// Source: results/backtest_series.csv on the MAIN branch (actual versus LSTM forecast over time, readable units)
+// ------------------------------------------------------------------------------------------------------------
+let
+    Source = Csv.Document(
+        Web.Contents("https://raw.githubusercontent.com/Stevvn23/stock-market-prediction",
+                     [RelativePath = "main/results/backtest_series.csv"]),
+        [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+    Promoted = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+    Typed = Table.TransformColumnTypes(Promoted, {
+        {"task", type text}, {"ticker", type text}, {"split", type text}, {"date", type date},
+        {"actual", type number}, {"predicted", type number}, {"baseline", type number}
     }, "en-US")
 in
     Typed
