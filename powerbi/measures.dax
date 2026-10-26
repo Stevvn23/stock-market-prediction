@@ -176,8 +176,12 @@ Backtest Samples = MAX ( Backtest[n] )
 // One row per ticker, split and date, so AVERAGE simply reads the value. Units: percent per day for returns,
 // annualized percent for volatility. Always pick ONE task and ONE split (single select slicers).
 
-Actual = AVERAGE ( BacktestSeries[actual] )
+Actual Value = AVERAGE ( BacktestSeries[actual] )
 
 Model Forecast = AVERAGE ( BacktestSeries[predicted] )
 
 Simple Baseline = AVERAGE ( BacktestSeries[baseline] )
+
+
+// Average miss of the next-day price in dollars per share (next_day_return task only). Easy to explain to anyone.
+Backtest Avg Miss ($) = AVERAGE ( Backtest[mae_price] )

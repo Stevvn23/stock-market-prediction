@@ -15,6 +15,7 @@ Output columns
     model, model_family   (baseline or lstm)
     n                 samples in the split. For vol_5d the effective sample is about n / 5 (overlapping windows).
     rmse              return scale for next_day_return, log-volatility scale for vol_5d
+    mae_price         next_day_return only: average miss of the next-day price in dollars per share
     reference_model   zero_return (returns) or har (volatility)
     rmse_vs_reference model RMSE divided by the reference RMSE. Below 1.0 = better than the reference.
     dir_acc           direction accuracy (returns only)
@@ -57,7 +58,7 @@ MODEL_LABELS = {
 BETTER_BELOW, WORSE_ABOVE = 0.97, 1.03     # inside this band the difference is treated as noise
 
 SPLITS = ["val", "test"]
-COLUMNS = ["task", "ticker", "split", "model", "model_family", "n", "rmse", "reference_model",
+COLUMNS = ["task", "ticker", "split", "model", "model_family", "n", "rmse", "mae_price", "reference_model",
            "rmse_vs_reference", "dir_acc", "r2_oos", "corr", "bias",
            "task_label", "split_label", "model_label", "verdict", "generated_utc"]
 SERIES_COLUMNS = ["task", "ticker", "split", "date", "actual", "predicted", "baseline"]
@@ -84,6 +85,7 @@ def returns_table() -> pd.DataFrame:
         "task": "next_day_return",
         "ticker": df["ticker"], "split": df["split"], "model": df["model"],
         "n": df["n"], "rmse": df["rmse_ret"],
+        "mae_price": df["mae_price"],
         "reference_model": "zero_return",
         "rmse_vs_reference": df["rmse_ret_vs_zero"],
         "dir_acc": df["dir_acc"],
@@ -106,6 +108,7 @@ def volatility_table() -> pd.DataFrame:
         "task": "vol_5d",
         "ticker": df["ticker"], "split": df["split"], "model": df["model"],
         "n": df["n"], "rmse": df["rmse_log"],
+        "mae_price": np.nan,
         "reference_model": "har",
         "rmse_vs_reference": df["rmse_vs_har"],
         "dir_acc": np.nan,

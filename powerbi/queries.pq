@@ -150,7 +150,7 @@ let
     Promoted = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
     Typed = Table.TransformColumnTypes(Promoted, {
         {"task", type text}, {"ticker", type text}, {"split", type text}, {"model", type text},
-        {"model_family", type text}, {"n", Int64.Type}, {"rmse", type number}, {"reference_model", type text},
+        {"model_family", type text}, {"n", Int64.Type}, {"rmse", type number}, {"mae_price", type number}, {"reference_model", type text},
         {"rmse_vs_reference", type number}, {"dir_acc", type number}, {"r2_oos", type number},
         {"corr", type number}, {"bias", type number},
         {"task_label", type text}, {"split_label", type text}, {"model_label", type text}, {"verdict", type text},
@@ -177,3 +177,34 @@ let
     }, "en-US")
 in
     Typed
+
+
+
+// ------------------------------------------------------------------------------------------------------------
+// Query name: Dim_Task   (a small lookup so ONE slicer filters both Backtest and BacktestSeries)
+// ------------------------------------------------------------------------------------------------------------
+let
+    Source = #table(
+        type table [task = text, task_label = text],
+        {
+            {"next_day_return", "Next-day price change"},
+            {"vol_5d", "5-day price swings (volatility)"}
+        }
+    )
+in
+    Source
+
+
+// ------------------------------------------------------------------------------------------------------------
+// Query name: Dim_Split
+// ------------------------------------------------------------------------------------------------------------
+let
+    Source = #table(
+        type table [split = text, split_label = text],
+        {
+            {"test", "Test (unseen data, the honest one)"},
+            {"val", "Validation (used while tuning)"}
+        }
+    )
+in
+    Source
