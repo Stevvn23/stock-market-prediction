@@ -91,3 +91,4 @@ run_utc,status,forecast_dates,rows_written,message
 2026-11-24 18:10:24,not_live,AAPL:2026-11-23;MSFT:2026-11-23;NVDA:2026-11-23,0,No forecast written. AAPL: the target session 2026-11-24 has already opened | MSFT: the target session 2026-11-24 has already opened | NVDA: the target session 2026-11-24 has already opened
 2026-11-24 20:44:07,not_live,AAPL:2026-11-23;MSFT:2026-11-23;NVDA:2026-11-23,0,No forecast written. AAPL: the target session 2026-11-24 has already opened | MSFT: the target session 2026-11-24 has already opened | NVDA: the target session 2026-11-24 has already opened
 2026-11-25 05:35:30,ok,AAPL:2026-11-24;MSFT:2026-11-24;NVDA:2026-11-24,18,18 forecast rows added.
+2026-11-25 11:39:06,no_new_rows,AAPL:2026-11-24;MSFT:2026-11-24;NVDA:2026-11-24,0,All forecasts for these dates already exist; nothing added.
